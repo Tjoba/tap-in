@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:convert';
+import 'package:flutter/services.dart';
 
 void main() => runApp(const TapInApp());
 
@@ -307,13 +309,127 @@ class TapInPage extends StatelessWidget {
   }
 }
 
-class PlayPage extends StatelessWidget {
+class PlayPage extends StatefulWidget {
   const PlayPage({super.key});
+  @override
+  State<PlayPage> createState() => _PlayPageState();
+}
+
+class _PlayPageState extends State<PlayPage> {
+  bool isValidLatLon(dynamic lat, dynamic lon) {
+    return lat is num && lon is num && !lat.isNaN && !lon.isNaN;
+  }
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _golfCourses = [];
+  List<Map<String, dynamic>> _filteredCourses = [];
+  // Overlay removed; no longer needed
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGolfCourses();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _loadGolfCourses() async {
+    // Load golf courses from assets/golf_courses_sweden.json
+    // For simplicity, use rootBundle (requires import 'package:flutter/services.dart')
+    final String data = await DefaultAssetBundle.of(context).loadString('assets/golf_courses_sweden.json');
+    final Map<String, dynamic> jsonData = json.decode(data);
+    setState(() {
+      _golfCourses = List<Map<String, dynamic>>.from(jsonData['golf_courses']);
+    });
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredCourses = _golfCourses
+          .where((course) =>
+            course['name'] != null &&
+            course['name'] is String &&
+            (course['name'] as String).toLowerCase().contains(query)
+          )
+          .toList();
+    });
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.grey[200],
-      child: Center(child: Text('Play Page', style: Theme.of(context).textTheme.headlineMedium)),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+          child: Column(
+            children: [
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search golf courses...',
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(32)),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            setState(() {
+                              _searchController.clear();
+                            });
+                          },
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: _searchController.text.isNotEmpty
+                    ? (_filteredCourses.isEmpty
+                        ? const Center(child: Text('No results found'))
+                        : Scrollbar(
+                            thumbVisibility: true,
+                            child: ListView.builder(
+                              itemCount: _filteredCourses.length,
+                              itemBuilder: (context, index) {
+                                final course = _filteredCourses[index];
+                                final name = course['name'] is String ? course['name'] as String : '';
+                                final city = (course['tags'] != null && course['tags']['addr:city'] is String)
+                                    ? course['tags']['addr:city'] as String
+                                    : null;
+                                final lat = course['lat'];
+                                final lon = course['lon'];
+                                // Defensive: never pass null or NaN to widgets
+                                // Only use lat/lon if valid (for future features)
+                                return ListTile(
+                                  title: Text(name),
+                                  subtitle: city != null && city.isNotEmpty ? Text(city) : null,
+                                  // Example: If you want to show location, check validity first
+                                  // trailing: isValidLatLon(lat, lon) ? Text('(${lat.toStringAsFixed(2)}, ${lon.toStringAsFixed(2)})') : null,
+                                  onTap: () {
+                                    // Optionally handle course selection
+                                  },
+                                );
+                              },
+                            ),
+                          ))
+                    : const Center(child: Text('Type to search golf courses...')),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -346,7 +462,50 @@ class YouPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.grey[200],
-      child: Center(child: Text('You Page', style: Theme.of(context).textTheme.headlineMedium)),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: Text('You Page', style: Theme.of(context).textTheme.headlineMedium),
+            ),
+            Positioned(
+              top: 16,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(Icons.settings, size: 28, color: Colors.black),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (context) {
+                      return Container(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.logout, color: Colors.red),
+                              title: const Text('Logout'),
+                              onTap: () async {
+                                const storage = FlutterSecureStorage();
+                                await storage.deleteAll();
+                                Navigator.of(context).pop();
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(builder: (context) => const AuthGate()),
+                                  (route) => false,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
